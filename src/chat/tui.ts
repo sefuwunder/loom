@@ -216,6 +216,7 @@ export class Tui {
     try {
       const r = await this.session.handle(line);
       if (r.quit) { this.done = true; return; }
+      if (r.notice) this.session.push("system", r.notice);
     } finally {
       this.thinking = false;
       this.statusOverride = null;

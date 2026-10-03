@@ -52,7 +52,8 @@ export class ChatSession {
     return lines.join("\n");
   }
 
-  private push(role: Message["role"], text: string): void {
+  /** Append a message (also persisted to the ledger). Public so the TUI can surface notices. */
+  push(role: Message["role"], text: string): void {
     this.messages.push({ role, text });
     addLedger(this.db, this.jobId, role === "user" ? "user" : role === "assistant" ? "assistant" : "system", text.slice(0, 4000));
   }

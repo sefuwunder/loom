@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseSlash, loadRegistry, renderTemplate, helpText } from "../src/chat/commands";
 import { wrap } from "../src/chat/text";
-import { parseKeys } from "../src/chat/tui";
+import { parseKeys, Tui } from "../src/chat/tui";
 import { openDb } from "../src/db";
 import { ChatSession } from "../src/chat/session";
 
@@ -88,6 +88,25 @@ const tmp = mkdtempSync(join(tmpdir(), "loom-chat-"));
   // history bounded
   for (let i = 0; i < 50; i++) s.messages.push({ role: "user", text: "x".repeat(1000) });
   ok(Buffer.byteLength(s.historyText(), "utf8") <= 8192, "history text bounded");
+  db.close();
+}
+
+// regression: TUI must surface notices (e.g. /help) — send() dropped them
+{
+  const db = openDb(join(tmp, "chat-tui.db"));
+  const s = new ChatSession(db, `sh ${join(import.meta.dir, "..", "examples", "thinker-fake.sh")}`, join(tmp, "commands"));
+  await s.init();
+  const tui = new Tui(s);
+  tui.render = () => {}; // no TTY in tests
+  tui.input = "/help";
+  await tui.send();
+  ok(s.messages.some((m) => m.role === "system" && m.text.includes("/quit")), "tui surfaces /help notice");
+  tui.input = "/thinker";
+  await tui.send();
+  ok(s.messages.some((m) => m.role === "system" && m.text.includes("thinker:")), "tui surfaces /thinker notice");
+  tui.input = "/nope";
+  await tui.send();
+  ok(s.messages.some((m) => m.role === "system" && m.text.includes("unknown command")), "tui surfaces unknown-command notice");
   db.close();
 }
 

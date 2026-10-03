@@ -152,7 +152,7 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
 - `examples/` — fake (tests), OpenAI-compatible, and model-file thinkers
-- `tests/` — 150 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `tests/` — 153 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
 
 ## `loom chat` — Pi-style minimal TUI
 
