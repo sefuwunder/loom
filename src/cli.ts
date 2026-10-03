@@ -99,7 +99,19 @@ async function main(): Promise<void> {
       const j = db.query(`SELECT * FROM jobs WHERE id = ?`).get(id) as any;
       if (!j) { console.error("unknown job"); process.exit(1); }
       const n = (db.query(`SELECT COUNT(*) AS n FROM steps WHERE job_id = ?`).get(id) as any).n;
-      console.log(`${j.id} — ${j.name}\nstatus: ${j.status}  steps: ${n}/${j.max_steps}  spin strikes: ${j.spin_strikes}\nresult: ${j.result || "—"}`);
+      const { vectorCount } = await import("./vector");
+      console.log(`${j.id} — ${j.name}\nstatus: ${j.status}  steps: ${n}/${j.max_steps}  spin strikes: ${j.spin_strikes}  vectors: ${vectorCount(db, id)}\nresult: ${j.result || "—"}`);
+      break;
+    }
+    case "recall": {
+      const id = rest[0];
+      const k = Math.min(Math.max(Number(arg("--k") || 3), 1), 8);
+      const q = rest.slice(1).filter((x) => !x.startsWith("--")).join(" ");
+      if (!id || !q) { console.error("usage: loom recall <job-id> <query...> [--k N]"); process.exit(1); }
+      const { recall, getEmbedder } = await import("./vector");
+      const hits = await recall(db, id, q, k, getEmbedder());
+      if (!hits.length) { console.log("(no indexed memory for this job)"); break; }
+      for (const h of hits) console.log(`[${h.kind} ${h.ref} score=${h.score.toFixed(3)}]\n${h.text.slice(0, 1200)}\n`);
       break;
     }
     case "log": {

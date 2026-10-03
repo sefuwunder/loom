@@ -45,6 +45,7 @@ export function buildContext(
     '{"action":"read","path":"...","offset":0,"limit":60} — read a file excerpt (capped)\n' +
     '{"action":"write","path":"...","content":"..."} — write a file (200KB cap, recorded)\n' +
     '{"action":"note","text":"..."} — record an observation or decision\n' +
+    '{"action":"recall","query":"...","k":3} — search this job\'s vector memory for relevant past steps/notes\n' +
     '{"action":"finish","summary":"..."} — job complete\n' +
     '{"action":"blocked","reason":"..."} — cannot proceed, needs the human';
   const protocolBytes = Buffer.byteLength(protocol, "utf8");

@@ -28,7 +28,7 @@ ok(o.repeat_penalty > 1, "repeat_penalty set (anti-loop)");
 ok(Number.isInteger(mf.context_budget) && mf.context_budget <= 16384, "context_budget <= default 16KB");
 ok(Number.isInteger(mf.think_timeout_s) && mf.think_timeout_s > 0, "think_timeout_s set");
 const sys = String(mf.system_prompt);
-for (const a of ["exec", "read", "write", "note", "finish", "blocked"])
+for (const a of ["exec", "read", "write", "note", "recall", "finish", "blocked"])
   ok(sys.includes(`"action":"${a}"`), `system prompt documents action ${a}`);
 ok(sys.includes("EXACTLY ONE JSON"), "system prompt demands single JSON object");
 ok(sys.includes("NEVER repeat"), "system prompt has anti-repeat rule");

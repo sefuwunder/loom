@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 
 export interface ThinkAction {
-  action: "exec" | "read" | "write" | "note" | "finish" | "blocked";
+  action: "exec" | "read" | "write" | "note" | "recall" | "finish" | "blocked";
   cmd?: string;
   path?: string;
   offset?: number;
@@ -12,6 +12,8 @@ export interface ThinkAction {
   content?: string;
   label?: string;
   text?: string;
+  query?: string;
+  k?: number;
   summary?: string;
   reason?: string;
   timeout_s?: number;
@@ -26,7 +28,7 @@ export interface ThinkResult {
   error?: string;
 }
 
-const VALID = new Set(["exec", "read", "write", "note", "finish", "blocked"]);
+const VALID = new Set(["exec", "read", "write", "note", "recall", "finish", "blocked"]);
 
 /** Run the thinker command with the context on stdin; parse one JSON object from stdout. */
 export async function think(

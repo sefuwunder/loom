@@ -2,6 +2,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { initVectors } from "./vector";
 
 export interface Job {
   id: string;
@@ -90,6 +91,7 @@ export function openDb(path?: string): Database {
     );
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   `);
+  initVectors(db);
   return db;
 }
 

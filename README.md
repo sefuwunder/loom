@@ -99,6 +99,34 @@ three `export` lines to skip onboarding next time.
 - Measured: 24MB of step output across 12 steps → **53MB RSS**, DB stays near-empty.
 - `loom gc` prunes old logs and vacuums.
 
+## Vector memory (the forgetting problem)
+
+Every step output, note, goal, plan, and finish/blocked summary is embedded
+into a per-job vector store (`vectors` table, blobs in SQLite). Two ways the
+past comes back:
+
+1. **`recall` action** — the thinker asks: `{"action":"recall","query":"...","k":3}`
+   and gets the most relevant past chunks as the step result. On demand,
+   counts as a step, and the spin detector still watches it.
+2. **auto-augment** — when the ledger tail truncates, the loop embeds
+   goal + latest observation, pulls the top-2 older chunks, and injects them
+   as `# RELEVANT MEMORY`, clipped to stay under the context budget.
+
+Two embedder tiers, same store:
+
+- **builtin** (default): zero-dependency hashed char-trigram vectors,
+  512-dim, L2-normalized, cosine similarity. Deterministic, microseconds
+  per embed, no downloads. Good enough for distinctive tokens (commands,
+  paths, error strings, codenames).
+- **ollama**: set `LOOM_EMBED_MODEL` (e.g. `nomic-embed-text`,
+  `LOOM_EMBED_URL` defaults to `http://localhost:11434`) for real semantic
+  embeddings via `/api/embed`. Rows are tagged per embedder; recall only
+  ever compares same-embedder rows.
+
+`loom recall <job-id> <query...> [--k N]` searches a job's memory by hand;
+`loom status <id>` shows the vector count. A job caps at 200 steps, so
+brute-force cosine over its rows is trivial (<2MB) — no native extensions.
+
 ## Anti-spin, precisely
 
 | Signal | Response |
@@ -124,7 +152,7 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
 - `examples/` — fake (tests), OpenAI-compatible, and model-file thinkers
-- `tests/` — 121 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `tests/` — 150 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
 
 ## `loom chat` — Pi-style minimal TUI
 
