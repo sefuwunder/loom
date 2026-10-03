@@ -14,6 +14,12 @@ Long agentic runs die three deaths: **context overflow** (the prompt grows until
 
 ## How it runs
 
+Install the shim once (needs `bun` on PATH):
+
+```sh
+ln -s "$PWD/bin/loom" ~/.local/bin/loom   # ensure ~/.local/bin is on PATH
+```
+
 ```
 loom submit "migrate the auth module to passkeys" --name passkeys
 LOOM_THINKER="sh examples/thinker-openai.sh" loom work     # daemon

@@ -1,0 +1,10 @@
+#!/bin/sh
+# loom — executable shim for the loom CLI.
+# Install: ln -s "$PWD/bin/loom" ~/.local/bin/loom   (ensure ~/.local/bin is on PATH)
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+if ! command -v bun >/dev/null 2>&1; then
+  echo "loom needs bun: https://bun.sh" >&2
+  exit 1
+fi
+exec bun "$ROOT/src/cli.ts" "$@"
