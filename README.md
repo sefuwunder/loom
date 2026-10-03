@@ -70,6 +70,21 @@ loom work
 Set `"api": "openai-chat"` in a model file to use `/v1/chat/completions`
 instead (temperature/max_tokens are mapped; Ollama-only options are skipped).
 
+### First-run onboarding
+
+`loom chat` without `LOOM_THINKER` doesn't die — it onboards. On a terminal
+it checks three things, asking before each side effect (nothing downloads
+or starts on its own):
+
+1. `ollama` on PATH? If not, it points at https://ollama.com and stops.
+2. server responding at `http://localhost:11434`? If not, it offers to
+   start `ollama serve` in the background (log: `data/ollama-serve.log`).
+3. `qwen3.5:2b` pulled? If not, it offers to `ollama pull` it (~2.7GB).
+
+Answer no at any step and it prints the manual command and exits. On success
+the chat starts immediately with the model file wired in, and it prints the
+three `export` lines to skip onboarding next time.
+
 ## Memory discipline
 
 - Context to the thinker: **16KB hard cap** (overridable via `LOOM_CONTEXT_BUDGET`; the qwen3.5:2b model file recommends 12288), action protocol first (never clipped).
@@ -103,7 +118,7 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
 - `examples/` — fake (tests), OpenAI-compatible, and model-file thinkers
-- `tests/` — 98 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `tests/` — 121 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
 
 ## `loom chat` — Pi-style minimal TUI
 

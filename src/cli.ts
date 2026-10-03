@@ -53,9 +53,20 @@ async function main(): Promise<void> {
       break;
     }
     case "chat": {
-      const thinker = process.env.LOOM_THINKER;
-      if (!thinker) { console.error("loom chat needs a thinker: set LOOM_THINKER"); process.exit(1); }
       if (!process.stdin.isTTY) { console.error("loom chat needs a terminal"); process.exit(1); }
+      let thinker = process.env.LOOM_THINKER;
+      if (!thinker) {
+        // first run: walk through local Ollama setup instead of dying
+        const { runOnboarding, realDeps } = await import("./chat/onboard");
+        const { join } = await import("node:path");
+        const deps = realDeps(join(import.meta.dir, ".."));
+        const res = await runOnboarding(deps);
+        deps.close();
+        if (!res) process.exit(1);
+        thinker = res.thinker;
+        Object.assign(process.env, res.env);
+        console.log(`\n${res.exportHint}\n`);
+      }
       const { ChatSession, defaultCommandsDir, defaultTranscriptPath } = await import("./chat/session");
       const { Tui } = await import("./chat/tui");
       const { mkdirSync } = await import("node:fs");
