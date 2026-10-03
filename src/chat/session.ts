@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { addLedger } from "../db";
 import { think } from "../think";
 import { loadRegistry, parseSlash, renderTemplate, runExecCommand, helpText, type Registry } from "./commands";
+import { parseMentions, resolveAttachments, attachmentsSection, attachmentsSummary } from "./attachments";
 
 export interface Message {
   role: "user" | "assistant" | "system";
@@ -71,11 +72,16 @@ export class ChatSession {
     if (slash) return this.handleSlash(slash.name, slash.args);
 
     this.push("user", t);
+    const mentions = parseMentions(t);
+    const atts = resolveAttachments(mentions, process.cwd());
+    const attachSection = attachmentsSection(atts);
+    if (atts.length) this.push("system", attachmentsSummary(atts));
     const ctx =
       "# SYSTEM\nYou are loom chat: a terse, helpful terminal assistant. " +
       "Reply with exactly one JSON object and nothing else: {\"action\":\"note\",\"text\":\"<your reply>\"}. " +
       "Keep replies short unless asked for detail.\n\n" +
-      "# HISTORY\n" + (this.historyText() || "(none)") + "\n\n# MESSAGE\nuser: " + t;
+      "# HISTORY\n" + (this.historyText() || "(none)") + "\n\n# MESSAGE\nuser: " + t +
+      (attachSection ? "\n\n" + attachSection : "");
 
     const tr = await think(this.thinker, ctx, { timeout_s: 120 });
     if (!tr.ok || !tr.action) {

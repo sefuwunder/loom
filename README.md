@@ -152,7 +152,7 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
 - `examples/` — fake (tests), OpenAI-compatible, and model-file thinkers
-- `tests/` — 153 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `tests/` — 180 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
 
 ## `loom chat` — Pi-style minimal TUI
 
@@ -166,6 +166,8 @@ Every chat session is a loom job (`status: 'chat'` — the daemon ignores it), s
 - `<name>.sh` — executable. Args on argv, `$LOOM_ARGS` / `$LOOM_HISTORY` in env; stdout is shown in chat.
 
 Builtins: `/help` `/quit` `/clear` `/save [path]` `/thinker`. See `examples/commands/` (`summarize.md`, `shout.sh`).
+
+**@-mentions:** `@path` in any message attaches it to the thinker prompt — files are inlined (32KB cap, binaries skipped), folders become a capped listing. The message keeps `@path` as typed. Tab completes `@` paths; emails like `a@b.com` are never treated as mentions.
 
 ## Non-goals (v1)
 

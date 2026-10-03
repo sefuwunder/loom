@@ -2,6 +2,7 @@
    Alternate buffer, one-line input with editing + history + tab completion,
    PgUp/PgDn scrollback. Terminal is always restored on exit. */
 import { wrap, truncateVis, dim, accent, userPrefix, botPrefix } from "./text";
+import { completePath } from "./attachments";
 import type { ChatSession } from "./session";
 
 type Key =
@@ -143,13 +144,29 @@ export class Tui {
 
   complete(): void {
     const m = /^\/([a-z0-9_-]*)$/.exec(this.input);
-    if (!m) return;
-    const names = [...this.session.registry.commands.keys()].filter((n) => n.startsWith(m[1]));
-    if (names.length === 1) {
-      this.input = "/" + names[0] + " ";
-      this.cursor = this.input.length;
-    } else if (names.length > 1) {
-      this.statusOverride = "candidates: " + names.map((n) => "/" + n).join(" ");
+    if (m) {
+      const names = [...this.session.registry.commands.keys()].filter((n) => n.startsWith(m[1]));
+      if (names.length === 1) {
+        this.input = "/" + names[0] + " ";
+        this.cursor = this.input.length;
+      } else if (names.length > 1) {
+        this.statusOverride = "candidates: " + names.map((n) => "/" + n).join(" ");
+        setTimeout(() => { this.statusOverride = null; if (!this.done) this.render(); }, 2500);
+      }
+      return;
+    }
+    // @path completion on the token before the cursor
+    const before = this.input.slice(0, this.cursor);
+    const am = /(^|[\s([{"'])@([^\s@]*)$/.exec(before);
+    if (!am) return;
+    const frag = am[2];
+    const cands = completePath(frag, process.cwd());
+    if (cands.length === 1) {
+      const done = before.slice(0, before.length - frag.length) + cands[0] + (cands[0].endsWith("/") ? "" : " ");
+      this.input = done + this.input.slice(this.cursor);
+      this.cursor = done.length;
+    } else if (cands.length > 1) {
+      this.statusOverride = "candidates: " + cands.map((c) => "@" + c).join(" ");
       setTimeout(() => { this.statusOverride = null; if (!this.done) this.render(); }, 2500);
     }
   }
@@ -271,7 +288,7 @@ export class Tui {
       stdin.on("data", this.onData);
       this.session.messages.push({
         role: "system",
-        text: `loom chat — talking to ${this.session.thinker}. /help for commands, /quit to exit.`,
+        text: `loom chat — talking to ${this.session.thinker}. /help for commands, @path to attach files, /quit to exit.`,
       });
       this.render();
       while (!this.done) await Bun.sleep(50);
