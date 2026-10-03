@@ -1,8 +1,20 @@
 /* context.ts — build the thinker's prompt under a hard byte budget. */
 import { Database } from "bun:sqlite";
 
-/** Total budget for everything handed to the thinker. Small enough for <4GB rigs. */
-export const CONTEXT_BUDGET = 16 * 1024;
+/** Total budget for everything handed to the thinker. Small enough for <4GB rigs.
+ *  Overridable per model file via LOOM_CONTEXT_BUDGET (bytes, min 2048).
+ *  The qwen3.5:2b tool model file recommends 12288. */
+export function getContextBudget(): number {
+  const raw = process.env.LOOM_CONTEXT_BUDGET;
+  if (raw !== undefined) {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 2048) return n;
+  }
+  return 16 * 1024;
+}
+
+/** Budget evaluated at import time; prefer getContextBudget() for live reads. */
+export const CONTEXT_BUDGET = getContextBudget();
 
 export interface ContextOpts {
   goalBudget?: number;
@@ -24,8 +36,9 @@ export function buildContext(
   extraSystem: string | null,
   opts: ContextOpts = {},
 ): string {
-  // Per-section budgets sum under CONTEXT_BUDGET. The action protocol goes
+  // Per-section budgets sum under the budget. The action protocol goes
   // FIRST and is never clipped — it is the one part the thinker must see.
+  const budget = getContextBudget();
   const protocol =
     "# YOUR MOVE — reply with exactly one JSON object, no prose outside it:\n" +
     '{"action":"exec","cmd":"...","label":"..."} — run a shell command (timeout_s optional, default 120)\n' +
@@ -35,7 +48,7 @@ export function buildContext(
     '{"action":"finish","summary":"..."} — job complete\n' +
     '{"action":"blocked","reason":"..."} — cannot proceed, needs the human';
   const protocolBytes = Buffer.byteLength(protocol, "utf8");
-  const rest = CONTEXT_BUDGET - protocolBytes;
+  const rest = budget - protocolBytes;
 
   const goalBudget = Math.min(opts.goalBudget ?? 2048, Math.floor(rest * 0.15));
   const planBudget = Math.floor(rest * 0.12);
@@ -71,8 +84,8 @@ export function buildContext(
 
   const out = parts.join("\n\n");
   // Safety net: should already be under budget given per-section caps.
-  if (Buffer.byteLength(out, "utf8") > CONTEXT_BUDGET) {
-    return protocol + "\n\n" + clip(parts.slice(1).join("\n\n"), CONTEXT_BUDGET - protocolBytes - 64) +
+  if (Buffer.byteLength(out, "utf8") > budget) {
+    return protocol + "\n\n" + clip(parts.slice(1).join("\n\n"), budget - protocolBytes - 64) +
       "\n…(context truncated to budget)…";
   }
   return out;

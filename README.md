@@ -38,9 +38,41 @@ export LOOM_THINKER="sh examples/thinker-openai.sh"
 
 `examples/thinker-fake.sh` is a deterministic stub for tests and dry runs.
 
+### Model files
+
+`models/` holds per-model configs consumed by `examples/thinker-model.sh` —
+a generic thinker that reads the model file and calls the endpoint:
+
+```sh
+ollama pull qwen3.5:2b   # on your machine; loom downloads nothing
+export LOOM_MODEL_FILE="$PWD/models/qwen3.5-2b-tool.json"
+export LOOM_CONTEXT_BUDGET=12288   # the file's recommended budget
+export LOOM_THINKER="sh examples/thinker-model.sh"
+loom work
+```
+
+`models/qwen3.5-2b-tool.json` specializes
+[qwen3.5:2b](https://ollama.com/library/qwen3.5:2b) for tool use on a <4GB box:
+
+- **Ollama native API** (`/api/chat`) so `options` reach the sampler:
+  `temperature 0.1`, `top_k 20`, `top_p 0.9`, `repeat_penalty 1.1`
+- **`num_ctx 8192`** — 2.7GB Q8_0 weights + KV cache stay under ~3.6GB
+  (drop to 4096 if the box is tight)
+- **`num_predict 512`** — loom actions are one short JSON object
+- **`format: "json"`** — Ollama constrains decoding to valid JSON, the
+  biggest reliability win for a 2B tool caller
+- **`think: false`** — disables the model's thinking traces, which would
+  break JSON mode and waste the small context
+- **tight system prompt** — exact JSON shape per action, few-shot examples,
+  explicit never-repeat rule; ~1.5KB so it costs little context
+
+`LOOM_MODEL` / `LOOM_API_URL` override the file's model and endpoint.
+Set `"api": "openai-chat"` in a model file to use `/v1/chat/completions`
+instead (temperature/max_tokens are mapped; Ollama-only options are skipped).
+
 ## Memory discipline
 
-- Context to the thinker: **16KB hard cap**, action protocol first (never clipped).
+- Context to the thinker: **16KB hard cap** (overridable via `LOOM_CONTEXT_BUDGET`; the qwen3.5:2b model file recommends 12288), action protocol first (never clipped).
 - Step output in DB: **32KB** (8 head + 24 tail); full logs spill to `data/logs/`.
 - File reads capped at 32KB, writes at 200KB.
 - Measured: 24MB of step output across 12 steps → **53MB RSS**, DB stays near-empty.
@@ -70,8 +102,8 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/think.ts` — thinker stdio protocol
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
-- `examples/` — fake (tests) + OpenAI-compatible thinkers
-- `tests/` — 62 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `examples/` — fake (tests), OpenAI-compatible, and model-file thinkers
+- `tests/` — 98 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
 
 ## `loom chat` — Pi-style minimal TUI
 
