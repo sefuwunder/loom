@@ -13,6 +13,7 @@ function usage(): void {
 
   loom submit "<goal>" [--name N] [--plan-file F] [--max-steps N] [--thinker CMD]
   loom work [--once]            run the daemon (claims jobs, resumes stale ones)
+  loom chat                     Pi-style minimal TUI chat with the thinker
   loom board                    all jobs at a glance
   loom status <id>              job detail
   loom log <id> [--tail N]      the thought, oldest→newest
@@ -49,6 +50,26 @@ async function main(): Promise<void> {
     }
     case "work": {
       await work(db, { once: rest.includes("--once") });
+      break;
+    }
+    case "chat": {
+      const thinker = process.env.LOOM_THINKER;
+      if (!thinker) { console.error("loom chat needs a thinker: set LOOM_THINKER"); process.exit(1); }
+      if (!process.stdin.isTTY) { console.error("loom chat needs a terminal"); process.exit(1); }
+      const { ChatSession, defaultCommandsDir, defaultTranscriptPath } = await import("./chat/session");
+      const { Tui } = await import("./chat/tui");
+      const { mkdirSync } = await import("node:fs");
+      const { dirname } = await import("node:path");
+      const session = new ChatSession(db, thinker, defaultCommandsDir());
+      await session.init();
+      mkdirSync(dirname(defaultCommandsDir()), { recursive: true });
+      const tui = new Tui(session);
+      await tui.run();
+      // auto-save the transcript (the ledger already has it; this is the readable copy)
+      const p = defaultTranscriptPath(session.jobId);
+      mkdirSync(dirname(p), { recursive: true });
+      await Bun.write(p, session.transcript());
+      console.log(`\ntranscript saved to ${p}  (replay with: loom log ${session.jobId})`);
       break;
     }
     case "board": {

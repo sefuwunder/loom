@@ -35,7 +35,8 @@ export interface Step {
 }
 
 export function openDb(path?: string): Database {
-  const p = path || process.env.LOOM_DATA_DIR || join(import.meta.dir, "..", "data", "loom.db");
+  // LOOM_DATA_DIR is always a directory; the database lives inside it.
+  const p = path || join(process.env.LOOM_DATA_DIR || join(import.meta.dir, "..", "data"), "loom.db");
   mkdirSync(dirname(p), { recursive: true });
   const db = new Database(p);
   db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");

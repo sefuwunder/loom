@@ -17,6 +17,7 @@ Long agentic runs die three deaths: **context overflow** (the prompt grows until
 ```
 loom submit "migrate the auth module to passkeys" --name passkeys
 LOOM_THINKER="sh examples/thinker-openai.sh" loom work     # daemon
+loom chat                     # Pi-style TUI chat with the thinker
 loom board        # all jobs
 loom log <id>     # the thought, oldest → newest
 loom wait <id>    # block until done
@@ -70,7 +71,20 @@ The daemon heartbeats every turn. `loom work` reclaims any job whose heartbeat i
 - `src/loop.ts` — the react loop + daemon + recovery
 - `src/cli.ts` — the CLI
 - `examples/` — fake (tests) + OpenAI-compatible thinkers
-- `tests/` — 38 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+- `tests/` — 62 checks: spin vectors, budget caps, timeout kills, full loop incl. a spinner that gets parked, stale-heartbeat resume, RSS bounds
+
+## `loom chat` — Pi-style minimal TUI
+
+A full-screen terminal chat with the thinker. Alternate buffer, one-line input with history (Up/Down), tab-completion, PgUp/PgDn scrollback, `NO_COLOR` respected, terminal always restored on exit.
+
+Every chat session is a loom job (`status: 'chat'` — the daemon ignores it), so the conversation persists to the ledger: `loom log <id>` replays it, and a markdown transcript auto-saves to `data/chats/`.
+
+**Programmable slash commands** — drop files in `data/commands/` (or `$LOOM_COMMANDS_DIR`):
+
+- `<name>.md` — prompt template. `{{input}}` is the text after the command, `{{history}}` the bounded transcript. First `# line` is the `/help` description.
+- `<name>.sh` — executable. Args on argv, `$LOOM_ARGS` / `$LOOM_HISTORY` in env; stdout is shown in chat.
+
+Builtins: `/help` `/quit` `/clear` `/save [path]` `/thinker`. See `examples/commands/` (`summarize.md`, `shout.sh`).
 
 ## Non-goals (v1)
 

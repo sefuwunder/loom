@@ -42,6 +42,11 @@ case "$MODE" in
       printf '{"action":"finish","summary":"bigexec done"}\n'
     fi
     ;;
+  chat)
+    N=$(cat "$STATE" 2>/dev/null || echo 0)
+    N=$((N + 1)); echo "$N" > "$STATE"
+    printf '{"action":"note","text":"fake reply %s"}\n' "$N"
+    ;;
   *)
     printf '{"action":"blocked","reason":"unknown FAKE_MODE %s"}\n' "$MODE"
     ;;
