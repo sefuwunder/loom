@@ -2,11 +2,20 @@
    Messages persist to the ledger, so `loom log <id>` replays any conversation. */
 
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { addLedger } from "../db";
-import { think, thinkTimeout } from "../think";
+import { think, thinkTimeout, type ThinkAction } from "../think";
+import { runExec } from "../exec";
+import { getEmbedder, recall } from "../vector";
 import { loadRegistry, parseSlash, renderTemplate, runExecCommand, helpText, type Registry } from "./commands";
 import { parseMentions, resolveAttachments, attachmentsSection, attachmentsSummary } from "./attachments";
+
+/** Max tool rounds before chat asks the thinker to just reply. */
+const CHAT_MAX_TOOL_ROUNDS = 5;
+/** exec inside chat defaults to 60s, never more than 120s. */
+const CHAT_EXEC_TIMEOUT_S = 60;
+const CHAT_EXEC_TIMEOUT_MAX_S = 120;
 
 export interface Message {
   role: "user" | "assistant" | "system";
@@ -76,28 +85,84 @@ export class ChatSession {
     const atts = resolveAttachments(mentions, process.cwd());
     const attachSection = attachmentsSection(atts);
     if (atts.length) this.push("system", attachmentsSummary(atts));
-    const ctx =
+    let ctx =
       "# SYSTEM\nYou are loom chat: a terse, helpful terminal assistant. " +
-      "Reply with exactly one JSON object and nothing else: {\"action\":\"note\",\"text\":\"<your reply>\"}. " +
+      "You can use tools before replying: {\"action\":\"read\",\"path\":\"...\"} to read a file, " +
+      "{\"action\":\"exec\",\"cmd\":\"...\"} to run a shell command, " +
+      "{\"action\":\"recall\",\"query\":\"...\"} to search memory. " +
+      "When you have what you need, reply with exactly one JSON object: {\"action\":\"note\",\"text\":\"<your reply>\"}. " +
       "Keep replies short unless asked for detail.\n\n" +
       "# HISTORY\n" + (this.historyText() || "(none)") + "\n\n# MESSAGE\nuser: " + t +
       (attachSection ? "\n\n" + attachSection : "");
 
-    const tr = await think(this.thinker, ctx, { timeout_s: thinkTimeout(120) });
-    if (!tr.ok || !tr.action) {
-      const msg = `thinker error: ${tr.error || "unknown"}`;
-      this.push("system", msg);
-      return { notice: msg };
+    // Agentic loop: run tool actions, feed observations back, until the
+    // thinker replies with a note.
+    for (let round = 0; round < CHAT_MAX_TOOL_ROUNDS; round++) {
+      const tr = await think(this.thinker, ctx, { timeout_s: thinkTimeout(120) });
+      if (!tr.ok || !tr.action) {
+        const msg = `thinker error: ${tr.error || "unknown"}`;
+        this.push("system", msg);
+        return { notice: msg };
+      }
+      const a = tr.action;
+      if (a.action === "note" || a.action === "finish" || a.action === "blocked") {
+        const text = a.text || a.summary || a.reason || "(empty reply)";
+        this.push("assistant", text);
+        return { reply: text };
+      }
+      const r = await this.execTool(a);
+      this.push("system", `tool ${a.action}: ${r.text.slice(0, 300)}`);
+      ctx += `\n\n# OBSERVATION (your "${a.action}" ${r.failed ? "failed" : "result"}):\n` +
+        r.text.slice(0, 4000) +
+        `\n\nContinue: use another tool if needed, otherwise reply with {"action":"note","text":"..."}.\n`;
     }
-    const a = tr.action;
-    if (a.action === "note" || a.action === "finish" || a.action === "blocked") {
-      const text = a.text || a.summary || a.reason || "(empty reply)";
-      this.push("assistant", text);
-      return { reply: text };
-    }
-    const msg = `thinker returned action "${a.action}" — chat only displays replies`;
+    const msg = "thinker kept using tools without replying — try asking again";
     this.push("system", msg);
     return { notice: msg };
+  }
+
+  /** Run a thinker tool action inside chat. write stays daemon-only. */
+  private async execTool(a: ThinkAction): Promise<{ text: string; failed: boolean }> {
+    switch (a.action) {
+      case "read": {
+        if (!a.path) return { text: "read needs path", failed: true };
+        try {
+          const buf = readFileSync(resolve(process.cwd(), a.path));
+          if (buf.includes(0)) return { text: `read ${a.path}: binary, skipped`, failed: true };
+          const off = a.offset ?? 0, lim = Math.min(a.limit ?? 120, 400);
+          const all = buf.toString("utf8").split("\n");
+          const lines = all.slice(off, off + lim).join("\n");
+          return { text: `read ${a.path} (lines ${off}\u2013${off + lim} of ${all.length}):\n${lines}`, failed: false };
+        } catch (e: any) {
+          return { text: `read ${a.path}: ${e.message}`, failed: true };
+        }
+      }
+      case "exec": {
+        if (!a.cmd) return { text: "exec needs cmd", failed: true };
+        const r = await runExec(a.cmd, { timeout_s: Math.min(a.timeout_s ?? CHAT_EXEC_TIMEOUT_S, CHAT_EXEC_TIMEOUT_MAX_S) });
+        return {
+          text: `exec ${r.timedOut ? "TIMED OUT" : "exit " + r.code} (${r.ms}ms):\n${r.head}`,
+          failed: r.timedOut || r.code !== 0,
+        };
+      }
+      case "recall": {
+        const q = (a.query || "").trim();
+        if (!q) return { text: "recall needs query", failed: true };
+        try {
+          const hits = await recall(this.db, this.jobId, q, Math.min(Math.max(a.k ?? 3, 1), 5), getEmbedder());
+          return {
+            text: hits.length
+              ? "recall results:\n\n" + hits.map((h) => `[${h.kind} ${h.ref}]\n${h.text.slice(0, 1500)}`).join("\n\n")
+              : "recall: no indexed memory yet for this query",
+            failed: false,
+          };
+        } catch (e: any) {
+          return { text: `recall failed: ${e.message}`, failed: true };
+        }
+      }
+      default:
+        return { text: `chat can't run "${a.action}" \u2014 reply with a note instead`, failed: true };
+    }
   }
 
   private async handleSlash(name: string, args: string): Promise<{ quit?: boolean; notice?: string; reply?: string }> {

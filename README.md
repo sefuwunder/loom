@@ -170,6 +170,8 @@ Builtins: `/help` `/quit` `/clear` `/save [path]` `/thinker`. See `examples/comm
 
 **@-mentions:** `@path` in any message attaches it to the thinker prompt — files are inlined (32KB cap, binaries skipped), folders become a capped listing. The message keeps `@path` as typed. Tab completes `@` paths; emails like `a@b.com` are never treated as mentions.
 
+**Tool use:** the thinker isn't limited to replies — it can `read` files, `exec` shell commands, and `recall` memory mid-conversation (up to 5 tool rounds per message); each result is fed back as an observation until it answers. `write` stays daemon-only.
+
 ## Non-goals (v1)
 
 No web UI, no multi-worker parallelism on one job, no model management (bring your own thinker — nothing is downloaded or configured for you).

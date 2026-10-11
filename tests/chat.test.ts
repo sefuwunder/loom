@@ -1,5 +1,5 @@
 /* chat.test.ts — slash parsing, registry, wrap, session. Run with bun. */
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseSlash, loadRegistry, renderTemplate, helpText } from "../src/chat/commands";
@@ -88,6 +88,36 @@ const tmp = mkdtempSync(join(tmpdir(), "loom-chat-"));
   // history bounded
   for (let i = 0; i < 50; i++) s.messages.push({ role: "user", text: "x".repeat(1000) });
   ok(Buffer.byteLength(s.historyText(), "utf8") <= 8192, "history text bounded");
+  db.close();
+}
+
+// chat tool loop: thinker reads a file, then replies with a note
+{
+  const db = openDb(join(tmp, "chat-tools.db"));
+  const s = new ChatSession(db, `sh ${join(import.meta.dir, "..", "examples", "thinker-fake.sh")}`, join(tmp, "commands"));
+  await s.init();
+  const target = join(tmp, "secret.txt");
+  await Bun.write(target, "SECRET_MARKER_42\nsecond line\n");
+  process.env.FAKE_MODE = "chat-tools";
+  process.env.FAKE_STATE_FILE = join(tmp, "chat-tools-state");
+  process.env.FAKE_READ_PATH = target;
+  const r = await s.handle("describe @secret.txt");
+  ok(!!r.reply && r.reply === "file described", `tool loop returns the final note (${r.reply})`);
+  ok(s.messages.some((m) => m.role === "system" && m.text.startsWith("tool read:")), "read action was executed");
+  ok(s.messages.some((m) => m.role === "system" && m.text.includes("SECRET_MARKER_42")), "observation fed back into the loop");
+  db.close();
+}
+
+// chat refuses write actions (daemon-only) and still gets a reply
+{
+  const db = openDb(join(tmp, "chat-write.db"));
+  const s = new ChatSession(db, `sh ${join(import.meta.dir, "..", "examples", "thinker-fake.sh")}`, join(tmp, "commands"));
+  await s.init();
+  process.env.FAKE_MODE = "chat-write";
+  process.env.FAKE_STATE_FILE = join(tmp, "chat-write-state");
+  const r = await s.handle("write something");
+  ok(!!r.reply && r.reply === "write refused, replying instead", "write refused, note still returned");
+  ok(!(() => { try { return readFileSync("/tmp/loom-chat-write-probe", "utf8"); } catch { return null; } })(), "write was not executed");
   db.close();
 }
 

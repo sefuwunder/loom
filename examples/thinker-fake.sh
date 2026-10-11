@@ -47,6 +47,22 @@ case "$MODE" in
     N=$((N + 1)); echo "$N" > "$STATE"
     printf '{"action":"note","text":"fake reply %s"}\n' "$N"
     ;;
+  chat-tools)
+    # call 1: read a file; call 2: reply with a note (tests chat's tool loop)
+    if [ "$count" -eq 1 ]; then
+      printf '{"action":"read","path":"%s"}\n' "$FAKE_READ_PATH"
+    else
+      printf '{"action":"note","text":"file described"}\n'
+    fi
+    ;;
+  chat-write)
+    # tries a write (chat must refuse), then replies
+    if [ "$count" -eq 1 ]; then
+      printf '{"action":"write","path":"/tmp/loom-chat-write-probe","content":"nope"}\n'
+    else
+      printf '{"action":"note","text":"write refused, replying instead"}\n'
+    fi
+    ;;
   *)
     printf '{"action":"blocked","reason":"unknown FAKE_MODE %s"}\n' "$MODE"
     ;;
