@@ -4,7 +4,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { addLedger } from "../db";
-import { think } from "../think";
+import { think, thinkTimeout } from "../think";
 import { loadRegistry, parseSlash, renderTemplate, runExecCommand, helpText, type Registry } from "./commands";
 import { parseMentions, resolveAttachments, attachmentsSection, attachmentsSummary } from "./attachments";
 
@@ -83,7 +83,7 @@ export class ChatSession {
       "# HISTORY\n" + (this.historyText() || "(none)") + "\n\n# MESSAGE\nuser: " + t +
       (attachSection ? "\n\n" + attachSection : "");
 
-    const tr = await think(this.thinker, ctx, { timeout_s: 120 });
+    const tr = await think(this.thinker, ctx, { timeout_s: thinkTimeout(120) });
     if (!tr.ok || !tr.action) {
       const msg = `thinker error: ${tr.error || "unknown"}`;
       this.push("system", msg);
@@ -123,7 +123,7 @@ export class ChatSession {
         const rendered = renderTemplate(def.template || "", ctx);
         this.push("user", `/${name} ${args}`.trim());
         const prompt = "# SYSTEM\nYou are loom chat. Reply with exactly one JSON object and nothing else: {\"action\":\"note\",\"text\":\"<your reply>\"}.\n\n# REQUEST\n" + rendered;
-        const tr = await think(this.thinker, prompt, { timeout_s: 120 });
+        const tr = await think(this.thinker, prompt, { timeout_s: thinkTimeout(120) });
         if (!tr.ok || !tr.action || (tr.action.action !== "note" && tr.action.action !== "finish")) {
           return { notice: `command failed: ${tr.error || "bad reply"}` };
         }

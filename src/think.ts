@@ -30,6 +30,15 @@ export interface ThinkResult {
 
 const VALID = new Set(["exec", "read", "write", "note", "recall", "finish", "blocked"]);
 
+/** Thinker timeout in seconds. LOOM_THINK_TIMEOUT_S overrides; otherwise
+ *  `fallback` (300s daemon loop, 120s chat). Unset/invalid values keep the
+ *  fallback, so slow local models can be given more room without touching
+ *  code: `LOOM_THINK_TIMEOUT_S=900 loom work`. */
+export function thinkTimeout(fallback = 300): number {
+  const v = Number(process.env.LOOM_THINK_TIMEOUT_S);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
+
 /** Run the thinker command with the context on stdin; parse one JSON object from stdout. */
 export async function think(
   thinkerCmd: string,

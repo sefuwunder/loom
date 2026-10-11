@@ -7,7 +7,7 @@ import { dirname } from "node:path";
 import { openDb, addLedger, recordStep, getKv, setKv, type Job } from "./db";
 import { buildContext, getContextBudget } from "./context";
 import { fingerprint, observe, emptySpin, replanPrompt, MAX_STRIKES, type SpinState } from "./spin";
-import { think, hashText, type ThinkAction } from "./think";
+import { think, thinkTimeout, hashText, type ThinkAction } from "./think";
 import { runExec } from "./exec";
 import { getEmbedder, indexChunk, recall, type Embedder } from "./vector";
 
@@ -195,7 +195,7 @@ export async function runJob(db: Database, jobId: string, opts: WorkOpts = {}): 
       }
     }
 
-    const tr = await think(thinker, ctx, { timeout_s: 300 });
+    const tr = await think(thinker, ctx, { timeout_s: thinkTimeout(300) });
 
     if (!tr.ok || !tr.action) {
       thinkFails++;

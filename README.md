@@ -94,6 +94,7 @@ three `export` lines to skip onboarding next time.
 ## Memory discipline
 
 - Context to the thinker: **16KB hard cap** (overridable via `LOOM_CONTEXT_BUDGET`; the qwen3.5:2b model file recommends 12288), action protocol first (never clipped).
+- Thinker timeout: **300s** per turn in the daemon loop, **120s** in `loom chat` (overridable via `LOOM_THINK_TIMEOUT_S`, e.g. `LOOM_THINK_TIMEOUT_S=900` for slow local models).
 - Step output in DB: **32KB** (8 head + 24 tail); full logs spill to `data/logs/`.
 - File reads capped at 32KB, writes at 200KB.
 - Measured: 24MB of step output across 12 steps → **53MB RSS**, DB stays near-empty.
