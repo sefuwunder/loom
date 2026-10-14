@@ -51,7 +51,8 @@ function outbox(db: Database, jobId: string, kind: string, text: string): void {
 }
 
 /** Execute one thinker action. Returns the observation text for the ledger. */
-async function executeAction(
+/** Execute one thinker action. Exported for tests. */
+export async function executeAction(
   db: Database, job: Job, a: ThinkAction, logDir: string, embedder: Embedder,
   index: (kind: string, ref: string, text: string) => Promise<void>,
 ): Promise<{ text: string; outputHash: string; failed: boolean }> {
@@ -115,6 +116,66 @@ async function executeAction(
         recordStep(db, job.id, "recall", { query: q, k }, fingerprint(a),
           "done", text.slice(0, 4000), hashText(text), null, 0);
         // recall output is a copy of indexed chunks — not re-indexed
+        return { text, outputHash: hashText(text), failed: false };
+      }
+      case "research": {
+        const q = (a.question || "").trim().slice(0, 500);
+        if (!q) return fail("research needs question");
+        const base = (process.env.LONGVIEW_URL || "http://127.0.0.1:3011").replace(/\/$/, "");
+        const timeoutMs = Math.min((a.timeout_s ?? 600) * 1000, 1800_000);
+        let runId: number;
+        try {
+          const r = await fetch(base + "/api/agent", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ question: q }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!r.ok) return fail(`research: longview rejected the question (http ${r.status})`);
+          const j: any = await r.json();
+          runId = Number(j.run_id);
+          if (!Number.isFinite(runId)) return fail("research: longview returned no run id");
+        } catch (e: any) {
+          return fail(`research: cannot reach longview at ${base} — is it running?`);
+        }
+        // Poll until the run finishes. Longview is async; research takes minutes.
+        const t0 = Date.now();
+        let run: any = null;
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 15000));
+          if (Date.now() - t0 > timeoutMs) {
+            return fail(`research: longview run ${runId} still working after ${Math.round(timeoutMs / 60000)}min — check it at ${base}`);
+          }
+          try {
+            const r = await fetch(`${base}/api/agent/${runId}`, { signal: AbortSignal.timeout(15000) });
+            if (!r.ok) continue;
+            run = (await r.json()).run;
+          } catch { continue; }
+          if (run && (run.status === "done" || run.status === "error")) break;
+        }
+        if (!run || run.status !== "done") {
+          return fail(`research: longview run ${runId} failed: ${String(run?.error || "unknown").slice(0, 200)}`);
+        }
+        // Compact findings for the bounded context: findings list first,
+        // then a clipped report. Raw pages never enter the thinker's context.
+        const findings: string[] = Array.isArray(run.findings) ? run.findings : [];
+        const sources: string[] = Array.isArray(run.sources) ? run.sources : [];
+        let text = "";
+        if (findings.length) {
+          text = "research findings:\n" + findings.slice(0, 12).map((f: any) =>
+            `- ${typeof f === "string" ? f : JSON.stringify(f)}`.slice(0, 600)).join("\n");
+        } else if (run.report_md) {
+          text = "research report (clipped):\n" + String(run.report_md).slice(0, 3000);
+        } else {
+          text = "research: longview finished but returned no findings";
+        }
+        if (sources.length) {
+          text += "\n\nsources: " + sources.slice(0, 8).join(", ").slice(0, 500);
+        }
+        text = text.slice(0, 4000);
+        recordStep(db, job.id, "research", { question: q, run_id: runId }, fingerprint(a),
+          "done", text, hashText(text), null, Date.now() - t0);
+        await index("step", refOf(`research ${a.label || q}`), `${q}\n${text}`);
         return { text, outputHash: hashText(text), failed: false };
       }
       default:

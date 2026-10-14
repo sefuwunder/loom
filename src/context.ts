@@ -46,6 +46,7 @@ export function buildContext(
     '{"action":"write","path":"...","content":"..."} — write a file (200KB cap, recorded)\n' +
     '{"action":"note","text":"..."} — record an observation or decision\n' +
     '{"action":"recall","query":"...","k":3} — search this job\'s vector memory for relevant past steps/notes\n' +
+    '{"action":"research","question":"...","label":"..."} — delegate web research to Longview (deterministic agent; returns compact findings, not raw pages)\n' +
     '{"action":"finish","summary":"..."} — job complete\n' +
     '{"action":"blocked","reason":"..."} — cannot proceed, needs the human';
   const protocolBytes = Buffer.byteLength(protocol, "utf8");

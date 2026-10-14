@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 
 export interface ThinkAction {
-  action: "exec" | "read" | "write" | "note" | "recall" | "finish" | "blocked";
+  action: "exec" | "read" | "write" | "note" | "recall" | "research" | "finish" | "blocked";
   cmd?: string;
   path?: string;
   offset?: number;
@@ -13,6 +13,7 @@ export interface ThinkAction {
   label?: string;
   text?: string;
   query?: string;
+  question?: string;
   k?: number;
   summary?: string;
   reason?: string;
@@ -28,7 +29,7 @@ export interface ThinkResult {
   error?: string;
 }
 
-const VALID = new Set(["exec", "read", "write", "note", "recall", "finish", "blocked"]);
+const VALID = new Set(["exec", "read", "write", "note", "recall", "research", "finish", "blocked"]);
 
 /** Thinker timeout in seconds. LOOM_THINK_TIMEOUT_S overrides; otherwise
  *  `fallback` (300s daemon loop, 120s chat). Unset/invalid values keep the
