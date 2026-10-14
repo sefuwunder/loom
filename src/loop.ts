@@ -121,40 +121,95 @@ export async function executeAction(
       case "research": {
         const q = (a.question || "").trim().slice(0, 500);
         if (!q) return fail("research needs question");
-        const base = (process.env.LONGVIEW_URL || "http://127.0.0.1:3011").replace(/\/$/, "");
+        const lvBase = (process.env.LONGVIEW_URL || "http://127.0.0.1:3011").replace(/\/$/, "");
         const timeoutMs = Math.min((a.timeout_s ?? 600) * 1000, 1800_000);
-        let runId: number;
-        try {
-          const r = await fetch(base + "/api/agent", {
+
+        // Optional Beacon fan-out: "industry in location" → business entities
+        // searched in parallel with the Longview web run.
+        const business = (a.business || "").trim();
+        let beaconSpec: { industry: string; location: string } | null = null;
+        if (business) {
+          const m = business.match(/^(.+?)\s+in\s+(.+)$/i);
+          if (m) beaconSpec = { industry: m[1].trim().slice(0, 80), location: m[2].trim().slice(0, 80) };
+        }
+        const bcBase = (process.env.BEACON_URL || "http://127.0.0.1:3012").replace(/\/$/, "");
+
+        /** Start the Longview run; resolves to run id or throws. */
+        const startLongview = async (): Promise<number> => {
+          const r = await fetch(lvBase + "/api/agent", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ question: q }),
             signal: AbortSignal.timeout(15000),
           });
-          if (!r.ok) return fail(`research: longview rejected the question (http ${r.status})`);
+          if (!r.ok) throw new Error(`http ${r.status}`);
           const j: any = await r.json();
-          runId = Number(j.run_id);
-          if (!Number.isFinite(runId)) return fail("research: longview returned no run id");
+          const id = Number(j.run_id);
+          if (!Number.isFinite(id)) throw new Error("no run id");
+          return id;
+        };
+
+        /** Start a Beacon business search; resolves to job id or null (fail-soft). */
+        const startBeacon = async (): Promise<string | null> => {
+          if (!beaconSpec) return null;
+          try {
+            const r = await fetch(bcBase + "/api/search", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(beaconSpec),
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!r.ok) return null;
+            const j: any = await r.json();
+            return typeof j.job_id === "string" ? j.job_id : null;
+          } catch { return null; }
+        };
+
+        let lvId: number;
+        let bcId: string | null = null;
+        try {
+          [lvId, bcId] = await Promise.all([
+            startLongview().catch((e: any) => { throw new Error(`longview: ${e.message}`); }),
+            startBeacon(),
+          ]);
         } catch (e: any) {
-          return fail(`research: cannot reach longview at ${base} — is it running?`);
+          const msg = String(e?.message || e);
+          if (msg.startsWith("longview:")) {
+            // Beacon alone is still useful if Longview is down and vice versa —
+            // but without Longview this isn't a research action; fail with guidance.
+            return fail(`research: cannot reach longview at ${lvBase} — is it running?`);
+          }
+          return fail(`research: ${msg.slice(0, 200)}`);
         }
         // Poll until the run finishes. Longview is async; research takes minutes.
+        // Beacon (if fanned out) is polled alongside.
         const t0 = Date.now();
         let run: any = null;
+        let beacon: any = null;
+        let beaconDone = !bcId;
         for (;;) {
           await new Promise((r) => setTimeout(r, 15000));
           if (Date.now() - t0 > timeoutMs) {
-            return fail(`research: longview run ${runId} still working after ${Math.round(timeoutMs / 60000)}min — check it at ${base}`);
+            return fail(`research: longview run ${lvId} still working after ${Math.round(timeoutMs / 60000)}min — check it at ${lvBase}`);
           }
           try {
-            const r = await fetch(`${base}/api/agent/${runId}`, { signal: AbortSignal.timeout(15000) });
-            if (!r.ok) continue;
-            run = (await r.json()).run;
-          } catch { continue; }
-          if (run && (run.status === "done" || run.status === "error")) break;
+            const r = await fetch(`${lvBase}/api/agent/${lvId}`, { signal: AbortSignal.timeout(15000) });
+            if (r.ok) run = (await r.json()).run;
+          } catch { /* keep polling */ }
+          if (bcId && !beaconDone) {
+            try {
+              const r = await fetch(`${bcBase}/api/search/${encodeURIComponent(bcId)}`, { signal: AbortSignal.timeout(15000) });
+              if (r.ok) {
+                const j: any = await r.json();
+                if (j.status === "done" || j.status === "error") { beacon = j; beaconDone = true; }
+              }
+            } catch { /* keep polling */ }
+          }
+          const lvDone = run && (run.status === "done" || run.status === "error");
+          if (lvDone && beaconDone) break;
         }
         if (!run || run.status !== "done") {
-          return fail(`research: longview run ${runId} failed: ${String(run?.error || "unknown").slice(0, 200)}`);
+          return fail(`research: longview run ${lvId} failed: ${String(run?.error || "unknown").slice(0, 200)}`);
         }
         // Compact findings for the bounded context: findings list first,
         // then a clipped report. Raw pages never enter the thinker's context.
@@ -172,10 +227,118 @@ export async function executeAction(
         if (sources.length) {
           text += "\n\nsources: " + sources.slice(0, 8).join(", ").slice(0, 500);
         }
+        // Beacon business entities, compact.
+        if (beacon && beacon.status === "done") {
+          const cos: any[] = Array.isArray(beacon.companies) ? beacon.companies : [];
+          if (cos.length) {
+            text += `\n\nbeacon: ${cos.length} ${beaconSpec!.industry} in ${beaconSpec!.location}:\n` +
+              cos.slice(0, 10).map((c: any) => {
+                const where = [c.city, c.state].filter(Boolean).join(", ");
+                return `- ${c.name || "?"}` +
+                  (where ? ` — ${where}` : "") +
+                  (c.url ? ` (${c.url})` : "") +
+                  (c.description ? `: ${String(c.description).slice(0, 100)}` : "");
+              }).join("\n");
+          } else {
+            text += `\n\nbeacon: no ${beaconSpec!.industry} found in ${beaconSpec!.location}`;
+          }
+        } else if (bcId) {
+          text += "\n\nbeacon: business search did not complete in time";
+        }
         text = text.slice(0, 4000);
-        recordStep(db, job.id, "research", { question: q, run_id: runId }, fingerprint(a),
-          "done", text, hashText(text), null, Date.now() - t0);
+        recordStep(db, job.id, "research",
+          { question: q, run_id: lvId, ...(beaconSpec ? { business: `${beaconSpec.industry} in ${beaconSpec.location}` } : {}) },
+          fingerprint(a), "done", text, hashText(text), null, Date.now() - t0);
         await index("step", refOf(`research ${a.label || q}`), `${q}\n${text}`);
+        return { text, outputHash: hashText(text), failed: false };
+      }
+      case "recon": {
+        const base = (process.env.MERIDIAN_URL || "http://127.0.0.1:3005").replace(/\/$/, "");
+        const jfetch = async (path: string, opts?: RequestInit): Promise<any> => {
+          const r = await fetch(base + path, {
+            ...opts,
+            headers: { "content-type": "application/json", ...(opts?.headers || {}) },
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!r.ok) throw new Error(`http ${r.status}`);
+          return r.json();
+        };
+
+        // Pivot inside an existing investigation.
+        if (a.investigation && a.transform) {
+          const invId = a.investigation;
+          let inv: any;
+          try {
+            inv = (await jfetch(`/api/investigations/${invId}`)).investigation;
+          } catch {
+            return fail(`recon: unknown investigation ${invId} (is meridian running at ${base}?)`);
+          }
+          const entities: any[] = inv.entities || [];
+          const target = a.entity
+            ? entities.find((e) => e.value === a.entity || e.id === a.entity)
+            : entities[0];
+          if (!target) return fail("recon: no entity to transform — pass \"entity\"");
+          let out: any;
+          try {
+            out = await jfetch(`/api/investigations/${invId}/transform`, {
+              method: "POST",
+              body: JSON.stringify({ transformKey: a.transform, entityId: target.id }),
+            });
+          } catch (e: any) {
+            return fail(`recon: transform failed — ${String(e?.message || e).slice(0, 200)}`);
+          }
+          const fresh: any[] = (out.investigation?.entities || []).filter((e: any) =>
+            !entities.some((o: any) => o.id === e.id));
+          let text = `recon: ran ${a.transform} on ${target.type}:${target.value}\n`;
+          text += `note: ${String(out.note || "—").slice(0, 300)}\n`;
+          text += `new entities (${out.addedEntities ?? fresh.length}):\n`;
+          text += fresh.slice(0, 15).map((e: any) => `- [${e.type}] ${e.value}`).join("\n") || "(none new)";
+          // Suggest next pivots from the new entities' types.
+          text += `\n\ninvestigation: ${invId} — pass it back with another transform to keep pivoting.`;
+          text = text.slice(0, 4000);
+          recordStep(db, job.id, "recon",
+            { investigation: invId, transform: a.transform, entity: target.value },
+            fingerprint(a), "done", text, hashText(text), null, 0);
+          await index("step", refOf(`recon ${a.transform} ${target.value}`), text);
+          return { text, outputHash: hashText(text), failed: false };
+        }
+
+        // Start a new investigation from a seed target.
+        const target = (a.target || "").trim().slice(0, 200);
+        if (!target) {
+          return fail('recon needs "target" (domain, ip, company, email...) or "investigation"+"transform" to pivot');
+        }
+        let inv: any;
+        try {
+          const created = await jfetch("/api/investigations", {
+            method: "POST",
+            body: JSON.stringify({
+              name: (a.label || `recon: ${target}`).slice(0, 80),
+              seedValue: target,
+            }),
+          });
+          inv = created.investigation;
+        } catch {
+          return fail(`recon: cannot reach meridian at ${base} — is it running?`);
+        }
+        const entities: any[] = inv.entities || [];
+        const seed = entities[0];
+        // Fetch available transforms for the seed's type.
+        let available: string[] = [];
+        try {
+          const ts: any = await jfetch("/api/transforms");
+          available = (ts.transforms || [])
+            .filter((t: any) => (t.inputTypes || []).includes(seed?.type))
+            .map((t: any) => t.key);
+        } catch { /* transforms list optional */ }
+        let text = `recon: investigation ${inv.id} seeded with [${seed?.type}] ${seed?.value}\n`;
+        text += available.length
+          ? `available pivots: ${available.join(", ")}\nRun one with {"action":"recon","investigation":"${inv.id}","transform":"<key>","entity":"${seed?.value}"}`
+          : "no transforms available for this entity type";
+        text = text.slice(0, 2000);
+        recordStep(db, job.id, "recon", { target, investigation: inv.id }, fingerprint(a),
+          "done", text, hashText(text), null, 0);
+        await index("step", refOf(`recon ${target}`), text);
         return { text, outputHash: hashText(text), failed: false };
       }
       default:

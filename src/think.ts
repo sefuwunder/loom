@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 
 export interface ThinkAction {
-  action: "exec" | "read" | "write" | "note" | "recall" | "research" | "finish" | "blocked";
+  action: "exec" | "read" | "write" | "note" | "recall" | "research" | "recon" | "finish" | "blocked";
   cmd?: string;
   path?: string;
   offset?: number;
@@ -14,6 +14,16 @@ export interface ThinkAction {
   text?: string;
   query?: string;
   question?: string;
+  /** recon: seed target (domain, ip, company, email...) or omit when continuing */
+  target?: string;
+  /** recon: existing investigation id to pivot inside */
+  investigation?: string;
+  /** recon: transform key to run (from availableTransforms) */
+  transform?: string;
+  /** recon: entity value to transform (defaults to the seed) */
+  entity?: string;
+  /** research: "industry in location" for Beacon business-entity fan-out */
+  business?: string;
   k?: number;
   summary?: string;
   reason?: string;
@@ -29,7 +39,7 @@ export interface ThinkResult {
   error?: string;
 }
 
-const VALID = new Set(["exec", "read", "write", "note", "recall", "research", "finish", "blocked"]);
+const VALID = new Set(["exec", "read", "write", "note", "recall", "research", "recon", "finish", "blocked"]);
 
 /** Thinker timeout in seconds. LOOM_THINK_TIMEOUT_S overrides; otherwise
  *  `fallback` (300s daemon loop, 120s chat). Unset/invalid values keep the

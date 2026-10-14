@@ -47,6 +47,9 @@ export function buildContext(
     '{"action":"note","text":"..."} — record an observation or decision\n' +
     '{"action":"recall","query":"...","k":3} — search this job\'s vector memory for relevant past steps/notes\n' +
     '{"action":"research","question":"...","label":"..."} — delegate web research to Longview (deterministic agent; returns compact findings, not raw pages)\n' +
+    '{"action":"research","question":"...","business":"juice bars in Cincinnati"} — same, plus Beacon business-entity search fanned out in parallel\n' +
+    '{"action":"recon","target":"example.com"} — start a Meridian OSINT investigation on a domain/ip/company/email (returns pivots you can run)\n' +
+    '{"action":"recon","investigation":"inv-...","transform":"...","entity":"..."} — run a Meridian transform to pivot the investigation graph\n' +
     '{"action":"finish","summary":"..."} — job complete\n' +
     '{"action":"blocked","reason":"..."} — cannot proceed, needs the human';
   const protocolBytes = Buffer.byteLength(protocol, "utf8");
